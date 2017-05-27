@@ -78,7 +78,46 @@ class SelectorBIC(ModelSelector):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
         # TODO implement model selection based on BIC scores
-        raise NotImplementedError
+
+        best_num = 0
+        min_bic = float("infinity")
+        # find the number of hidden states that seems best
+        # build a model for each possible number of hidden states
+        for i in range(self.min_n_components, self.max_n_components+1):
+            try:
+                #train a model with i states using self.X and self.lengths
+                model = self.base_model(i)
+                logL = model.score(self.X, self.lengths) # score the model using the data
+
+                ## find free params in this model ##
+                # transition probs = the size of the transmat matrix less
+                # one row because they add up to 1 and therefore the final
+                # row is deterministic,
+                free_transition_probs = i * (i - 1)
+                # free means = number of components * features
+                free_means = i * len(self.X[0])
+                # free covars = size of the covars matrix (components x features)
+                free_covars = i * len(self.X[0])
+                # starting probs = the size of startprob minus 1 because it adds
+                # to 1.0
+                free_starting_probs = i - 1
+                # sum all components together
+                num_free_params = free_transition_probs + free_means + free_covars + free_starting_probs
+
+                # calculate the BIC score
+                BIC = -2 * logL + num_free_params * math.log(len(self.X))
+
+                # if this has the best bic score, save it
+                if (BIC < min_bic):
+                    best_num = i;
+                min_bic = min(min_bic, BIC)
+
+            except Exception as e:
+                if ERROR_LOGGING:
+                    print(str(e))
+                continue;
+
+        return self.base_model(best_num)
 
 
 class SelectorDIC(ModelSelector):
