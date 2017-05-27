@@ -7,6 +7,7 @@ from hmmlearn.hmm import GaussianHMM
 from sklearn.model_selection import KFold
 from asl_utils import combine_sequences
 
+ERROR_LOGGING = False
 
 class ModelSelector(object):
     '''
@@ -104,5 +105,68 @@ class SelectorCV(ModelSelector):
     def select(self):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
+
+
+        if(len(self.lengths) >= 2):
+            split_method = KFold(n_splits=min(3,len(self.lengths)))
+        else :
+            split_method = None
+
         # TODO implement model selection using CV
-        raise NotImplementedError
+        best_num = 0
+        max_logL = float("-infinity")
+        # find the number of hidden states that seems best
+        # build a model for each possible number of hidden states
+        for i in range(self.min_n_components, self.max_n_components+1):
+            # Evaluate each model by training on a set of training sets,
+            # then evaluating based on a test set.
+            # The model with the best average score over all sets wins.
+
+            j = 0 # number of training/test slices - we'll count as we go
+            logL = 0 #initialize the total logL to zero (we'll average this later)
+
+            # split sequences into training and test sets
+            if (len(self.lengths) >= 2) :
+                for cv_train_idx, cv_test_idx in split_method.split(self.sequences):
+                    try:
+                        # build sequences from indeces collected from split method
+                        X_train, lengths_train = combine_sequences(cv_train_idx, self.sequences)
+                        X_test, lengths_test = combine_sequences(cv_test_idx, self.sequences)
+
+                        # train model on training sequences
+                        model = GaussianHMM(n_components=i, n_iter=1000).fit(X_train, lengths_train)
+
+                        # score model on test sequences
+                        logL += model.score(X_test, lengths_test)
+                        j += 1
+                    except Exception as e:
+                        # we may hit this for a number of reasons:
+                        # for example, there are more parameters than samples
+                        if ERROR_LOGGING:
+                            print(str(e))
+                        continue;
+            else:
+                try:
+                    model = self.base_model(i)
+                    logL += model.score(self.X, self.lengths)
+                    j += 1
+                except Exception as e:
+                    if ERROR_LOGGING:
+                        print(str(e))
+                    continue;
+
+            if (j == 0):
+                continue;
+            # find average score
+            avg_logL = logL/j
+
+            # if this is the best score so far, save it - higher is better
+            if(avg_logL > max_logL):
+                best_num = i
+                max_logL = avg_logL
+
+        # build best model from best number of states, and return it
+        best_model = self.base_model(best_num) # this is fitted with self.X and self.lenghts
+        return best_model
+
+
